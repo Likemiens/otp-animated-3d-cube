@@ -1,0 +1,147 @@
+# OTP 3D Cube
+
+Интерактивный 3D-кубик Рубика с 8 состояниями сборки, idle-анимацией и финальной кинематографической сценой с шейдером God Rays.
+
+## Стек
+
+- **Three.js** (0.160) — рендеринг, `RoundedBoxGeometry`, `OrbitControls`
+- **React 18** — монтирование шейдера God Rays (через `createRoot` в vanilla-окружении)
+- **@paper-design/shaders-react** — шейдер God Rays для финальной сцены
+- Без сборщика: модули загружаются через `<script type="importmap">` + esm.sh
+
+## Структура
+
+```
+├── index.html      # HTML-каркас, importmap, кнопки этапов
+├── main.js         # Вся логика: сцена, материалы, состояния, анимации
+├── style.css       # Стили UI, фон, входная анимация
+└── icons/          # 6 SVG-иконок (белые силуэты на прозрачном фоне)
+    ├── smiley.svg
+    ├── lightbulb.svg
+    ├── target.svg
+    ├── fire.svg
+    ├── mountain.svg
+    └── rocket.svg
+```
+
+## Архитектура куба
+
+Куб состоит из **27 кубиков** (`cubies`), объединённых в `THREE.Group` (`cubeGroup`). Каждый кубик — `THREE.Mesh` с 6 материалами (по одному на грань). Материалы создаются через `getMaterial(hex, iconType)`, который рисует текстуру на `<canvas>` 256×256:
+
+1. Тёмная подложка `#0a0a0c`
+2. Цветная наклейка со скруглёнными углами (`padding: 20px`, `radius: 32px`)
+3. Белая SVG-иконка поверх (если назначена)
+
+Материалы кешируются по ключу `hex_iconType`.
+
+## Состояния (1–8)
+
+Переключение: `setCubeState(n)` или кнопки в UI.
+
+| Состояние | Описание |
+|-----------|----------|
+| 1 | Полностью разобран. Бесконечные случайные повороты граней. |
+| 2–6 | `N-1` граней собраны (в порядке: right → left → top → bottom → front). Остальные перемешаны. Цикл «разобрать 2 хода → собрать обратно». |
+| 7 | Полностью собран. Только idle-вращение, грани не крутятся. |
+| 8 | Финал: ускорение вращения → удержание → масштабирование + растворение → God Rays шейдер + текст. |
+
+### Скрамблинг
+
+Несобранные грани заполняются из детерминированного пула `{hex, icon}` (по 9 тайлов на грань: 5 с иконкой, 4 без). Пул перемешивается через `seededRandom(state * 12345)` — результат стабилен между перезагрузками.
+
+## Настройка
+
+### Цвета граней
+
+```js
+// main.js → CONFIG.faceColors
+faceColors: {
+  right: '#9c59b6',   // +X
+  left: '#f1c40f',    // -X
+  top: '#ef6c00',     // +Y
+  bottom: '#e74c3c',  // -Y
+  front: '#9bcc3a',   // +Z
+  back: '#3498db',    // -Z
+},
+```
+
+### Иконки
+
+Привязка грань → иконка:
+
+```js
+// main.js → FACE_ICONS
+const FACE_ICONS = {
+  right: 'smiley',
+  left: 'lightbulb',
+  top: 'target',
+  bottom: 'fire',
+  front: 'mountain',
+  back: 'rocket'
+};
+```
+
+SVG-файлы лежат в `icons/`. Требования: `viewBox="0 0 256 256"`, все фигуры `fill="white"`, фон прозрачный. Для вырезов использовать SVG `<mask>`.
+
+Позиции тайлов с иконками (5 из 9 — углы + центр):
+
+```js
+const ICON_POSITIONS = new Set(['-1,-1', '1,-1', '0,0', '-1,1', '1,1']);
+```
+
+### Освещение
+
+```js
+// main.js, строки ~50–66
+AmbientLight:      intensity 0.6
+DirectionalLight:  intensity 1.2, position (8, 12, 10)  — основной
+DirectionalLight:  intensity 0.4, position (-6, 4, -8)  — заполняющий
+DirectionalLight:  intensity 0.3, position (0, -4, -10) — контровой
+toneMappingExposure: 1.1
+```
+
+### Анимация
+
+```js
+CONFIG.idleSpeedX    // скорость idle-вращения по X
+CONFIG.idleSpeedY    // скорость idle-вращения по Y
+CONFIG.turnDuration  // длительность поворота грани (мс)
+```
+
+Дополнительно в `animate()`: невесомость (sin/cos по position и rotation), дрифт.
+
+### God Rays шейдер (этап 8)
+
+```js
+// main.js → setCubeState, блок state === 8
+React.createElement(GodRays, {
+  colors: ["#9a6fc8", "#ef6915", "#ffffff", "#ef6915"],
+  colorBack: "#ffffff",
+  colorBloom: "#9a6fc8",
+  bloom: 0.4,
+  intensity: 0.8,
+  speed: 0.75,
+  // ...остальные параметры
+})
+```
+
+Все пропсы — по документации [@paper-design/shaders-react](https://github.com/nicoptere/paper-design-shaders).
+
+### Тайминги финальной анимации (этап 8)
+
+```
+0–3 сек    Разгон вращения (ease-in по степенной кривой)
+3–6.5 сек  Удержание на максимальной скорости
+6.5–9 сек  Масштабирование + растворение canvas (opacity → 0)
+8+ сек     Появление текста
+```
+
+Текст задаётся в `textDiv.innerText` (по умолчанию: «Ты заполнил куб!»).
+
+## API
+
+```js
+window.setCubeState(n)  // Переключить состояние (1–8)
+```
+
+Можно вызывать программно из консоли или внешнего кода при встраивании.
