@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>OTP 3D Cube</title>
+    <link rel="stylesheet" href="style.css" />
+</head>
+
+<body>
+    <div id="ui-overlay">
+        <button data-state="1">Этап 1</button>
+        <button data-state="2">Этап 2</button>
+        <button data-state="3">Этап 3</button>
+        <button data-state="4">Этап 4</button>
+        <button data-state="5">Этап 5</button>
+        <button data-state="6">Этап 6</button>
+        <button data-state="7">Собран</button>
+        <button data-state="8">Финал</button>
+    </div>
+    <div id="toast"></div>
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://esm.sh/three@0.160.0",
+        "three/addons/": "https://esm.sh/three@0.160.0/examples/jsm/",
+        "react": "https://esm.sh/react@18.2.0",
+        "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+        "@paper-design/shaders-react": "https://esm.sh/@paper-design/shaders-react?deps=react@18.2.0,three@0.160.0,react-dom@18.2.0"
+      }
+    }
+  </script>
+    <script type="module" src="main.js"></script>
+</body>
+
+</html>
