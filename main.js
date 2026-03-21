@@ -82,26 +82,32 @@ controls.maxPolarAngle = Math.PI;
 // МАТЕРИАЛЫ
 // ============================================================
 
-// Каждая грань имеет свою уникальную иконку
-const FACE_ICONS = {
-  right: 'smiley',
-  left: 'lightbulb',
-  top: 'target',
-  bottom: 'fire',
-  front: 'mountain',
-  back: 'rocket'
-};
+// Одна картинка (OTP логотип) — размещается на 1 случайном тайле на каждой грани
+const FACE_NAMES = ['right', 'left', 'top', 'bottom', 'front', 'back'];
 
-// Позиции на 2D-грани (из 9), которые получают иконку (5 шт: 4 угла + центр)
-const ICON_POSITIONS = new Set(['-1,-1', '1,-1', '0,0', '-1,1', '1,1']);
+// Для каждой грани детерминированно выбираем одну случайную позицию из 9 тайлов
+function seededRand(seed) {
+  const x = Math.sin(seed) * 10000;
+  return x - Math.floor(x);
+}
 
-// Обратная карта: цвет → иконка
-const COLOR_TO_ICON = {};
-Object.entries(FACE_ICONS).forEach(([face, icon]) => {
-  COLOR_TO_ICON[CONFIG.faceColors[face]] = icon;
+// Все 9 возможных 2D-позиций тайлов на грани
+const ALL_TILE_POSITIONS = [];
+for (let a = -1; a <= 1; a++) {
+  for (let b = -1; b <= 1; b++) {
+    ALL_TILE_POSITIONS.push(a + ',' + b);
+  }
+}
+
+// Выбираем по 1 случайной позиции на каждую грань (seed = index грани)
+const FACE_LOGO_POSITION = {};
+FACE_NAMES.forEach((face, idx) => {
+  const rand = seededRand((idx + 1) * 7777);
+  const tileIdx = Math.floor(rand * 9);
+  FACE_LOGO_POSITION[face] = ALL_TILE_POSITIONS[tileIdx];
 });
 
-// Определяем icon для тайла на конкретной грани по 3D-координатам кубика
+// Определяем, нужно ли рисовать лого на этом тайле
 function getFaceIcon(faceName, x, y, z) {
   let a, b;
   switch (faceName) {
@@ -112,35 +118,22 @@ function getFaceIcon(faceName, x, y, z) {
     case 'front': a = x; b = y; break;
     case 'back': a = -x; b = y; break;
   }
-  return ICON_POSITIONS.has(a + ',' + b) ? FACE_ICONS[faceName] : 'none';
+  return (a + ',' + b) === FACE_LOGO_POSITION[faceName] ? 'otp_logo' : 'none';
 }
 
 // ============================================================
-// ЗАГРУЗКА ИКОНОК (SVG-картинки)
+// ЗАГРУЗКА ЛОГОТИПА (одна картинка)
 // ============================================================
 const ICON_IMAGES = {};
-const ICON_FILES = {
-  smiley: 'icons/smiley.svg',
-  lightbulb: 'icons/lightbulb.svg',
-  target: 'icons/target.svg',
-  fire: 'icons/fire.svg',
-  mountain: 'icons/mountain.svg',
-  rocket: 'icons/rocket.svg'
-};
-
 let iconsLoaded = false;
 
 function loadAllIcons() {
-  return Promise.all(
-    Object.entries(ICON_FILES).map(([name, src]) => {
-      return new Promise((resolve) => {
-        const img = new Image();
-        img.onload = () => { ICON_IMAGES[name] = img; resolve(); };
-        img.onerror = () => { console.warn('Не удалось загрузить иконку:', src); resolve(); };
-        img.src = src;
-      });
-    })
-  ).then(() => { iconsLoaded = true; });
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => { ICON_IMAGES['otp_logo'] = img; iconsLoaded = true; resolve(); };
+    img.onerror = () => { console.warn('Не удалось загрузить логотип'); iconsLoaded = true; resolve(); };
+    img.src = 'icons/otp_logo.png';
+  });
 }
 
 // ============================================================
@@ -195,9 +188,9 @@ function getMaterial(hex, iconType) {
     ctx.fill();
   }
 
-  // Рисуем иконку из загруженной картинки
+  // Рисуем логотип OTP на тайле
   if (iconType !== 'none' && iconType && ICON_IMAGES[iconType]) {
-    const iconPad = 55; // Отступ иконки от краёв тайла
+    const iconPad = 50; // Отступ логотипа от краёв тайла
     const iconSize = 256 - iconPad * 2;
     ctx.drawImage(ICON_IMAGES[iconType], iconPad, iconPad, iconSize, iconSize);
   }
@@ -327,13 +320,12 @@ function setCubeState(state) {
       return x - Math.floor(x);
     }
 
-    // Собираем пул тайлов {hex, icon} — ровно 9 на грань (5 с иконкой, 4 без)
+    // Собираем пул тайлов {hex, icon} — ровно 9 на грань (1 с логотипом, 8 без)
     const tilesPool = [];
     unsolvedFaceNames.forEach(f => {
       const hex = CONFIG.faceColors[f];
-      const icon = FACE_ICONS[f];
-      for (let i = 0; i < 5; i++) tilesPool.push({ hex, icon });
-      for (let i = 0; i < 4; i++) tilesPool.push({ hex, icon: 'none' });
+      for (let i = 0; i < 1; i++) tilesPool.push({ hex, icon: 'otp_logo' });
+      for (let i = 0; i < 8; i++) tilesPool.push({ hex, icon: 'none' });
     });
 
     // Детерминированно перемешиваем пул тайлов
