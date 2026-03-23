@@ -8,11 +8,11 @@ import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.j
 const CONFIG = {
   // Цвета граней куба: +X (правая), -X (левая), +Y (верх), -Y (низ), +Z (перед), -Z (зад)
   faceColors: {
-    right: '#9c59b6', // фиолетовый
+    right: '#9760D3', // фиолетовый
     left: '#f1c40f', // жёлтый
-    top: '#ef6c00', // оранжевый
+    top: '#F67629', // оранжевый
     bottom: '#e74c3c', // красный
-    front: '#9bcc3a', // зелёный
+    front: '#B9FF00', // зелёный
     back: '#3498db', // синий
   },
   innerColor: '#1a1a2e',  // цвет внутренних (невидимых) граней и ядра
