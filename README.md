@@ -1,12 +1,11 @@
 # OTP 3D Cube
 
-Интерактивный 3D-кубик Рубика с 7 публичными состояниями, idle-анимацией и финальной кинематографической сценой с шейдером God Rays.
+Интерактивный 3D-кубик Рубика с 7 публичными состояниями, idle-анимацией и финальной кинематографической сценой с полноэкранным видеофоном.
 
 ## Стек
 
 - **Three.js** (0.160) — рендеринг, `RoundedBoxGeometry`, `OrbitControls`
-- **React 18** — монтирование шейдера God Rays (через `createRoot` в vanilla-окружении)
-- **@paper-design/shaders-react** — шейдер God Rays для финальной сцены
+- **HTML5 Video** — полноэкранный видеофон для финальной сцены
 - Без сборщика: модули загружаются через `<script type="importmap">` + esm.sh
 
 ## Структура
@@ -39,7 +38,7 @@
 | 1 | Полностью разобран. Бесконечные случайные повороты граней. |
 | 2–5 | `N-1` граней собраны (в порядке: right → left → top → bottom). Остальные перемешаны. Цикл «разобрать 2 хода → собрать обратно». |
 | 6 | Полностью собран. Только idle-вращение, грани не крутятся. |
-| 7 | Финал: ускорение вращения → удержание → масштабирование + растворение → God Rays шейдер + текст. |
+| 7 | Финал: ускорение вращения → удержание → масштабирование + растворение → видеофон + текст. |
 
 ### Скрамблинг
 
@@ -106,22 +105,18 @@ CONFIG.turnDuration  // длительность поворота грани (м
 
 Дополнительно в `animate()`: невесомость (sin/cos по position и rotation), дрифт.
 
-### God Rays шейдер (этап 7)
+### Видеофон (этап 7)
 
 ```js
 // main.js → setCubeState, блок state === 7
-React.createElement(GodRays, {
-  colors: ["#9a6fc8", "#ef6915", "#ffffff", "#ef6915"],
-  colorBack: "#ffffff",
-  colorBloom: "#9a6fc8",
-  bloom: 0.4,
-  intensity: 0.8,
-  speed: 0.75,
-  // ...остальные параметры
-})
+finalVideo.src = 'assets/otpCoverBg.mp4'
+finalVideo.loop = true
+finalVideo.muted = true
+finalVideo.autoplay = true
+finalVideo.style.objectFit = 'cover'
 ```
 
-Все пропсы — по документации [@paper-design/shaders-react](https://github.com/nicoptere/paper-design-shaders).
+Видео хранится в `assets/otpCoverBg.mp4` и включается только в финальном состоянии.
 
 ### Тайминги финальной анимации (этап 7)
 

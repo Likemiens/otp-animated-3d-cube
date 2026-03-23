@@ -1,9 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
-import React from 'react';
-import { createRoot } from 'react-dom/client';
-import { GodRays } from '@paper-design/shaders-react';
 
 // ============================================================
 // НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ
@@ -267,14 +264,47 @@ loadAllIcons().then(() => {
 // УПРАВЛЕНИЕ СОСТОЯНИЯМИ КУБА
 // ============================================================
 
-let currentState = 7;
+let currentState = 1;
 let autoTurnTimeout;
 let loopPhase = 'idle';
 let currentMoves = [];
 let finalAnimationActive = false;
 let finalAnimationStart = 0;
+let cubeDisplayEnabled = true;
+let animationWantsCubeVisible = true;
+
+function syncCubeVisibility() {
+  cubeGroup.visible = cubeDisplayEnabled && animationWantsCubeVisible;
+}
+
+function updateCubeVisibilityButton() {
+  const btn = document.getElementById('toggle-cube-visibility');
+  if (!btn) return;
+  btn.textContent = cubeDisplayEnabled ? 'Скрыть куб' : 'Показать куб';
+}
+
+function getStateLabel(state) {
+  switch (state) {
+    case 1: return 'Этап 1';
+    case 2: return 'Этап 2';
+    case 3: return 'Этап 3';
+    case 4: return 'Этап 4';
+    case 5: return 'Этап 5';
+    case 6: return 'Собран';
+    case 7: return 'Финал';
+    default: return `Состояние ${state}`;
+  }
+}
+
+function updateCurrentStateIndicator() {
+  const btn = document.getElementById('current-state-indicator');
+  if (!btn) return;
+  btn.textContent = `Состояние: ${getStateLabel(currentState)}`;
+}
+
 function setCubeState(state) {
   currentState = state;
+  updateCurrentStateIndicator();
   isAnimating = false;
   clearTimeout(autoTurnTimeout);
   currentMoves = [];
@@ -283,11 +313,17 @@ function setCubeState(state) {
 
   // Восстанавливаем видимость и масштаб, если передумали смотреть финал
   cubeGroup.scale.set(1, 1, 1);
+  animationWantsCubeVisible = true;
+  syncCubeVisibility();
   renderer.domElement.style.transition = 'opacity 0.5s ease';
   renderer.domElement.style.opacity = '1';
 
-  const sDiv = document.getElementById('god-rays-shader');
-  if (sDiv) sDiv.style.opacity = '0';
+  const finalVideo = document.getElementById('final-video');
+  if (finalVideo) {
+    finalVideo.style.opacity = '0';
+    finalVideo.pause();
+    finalVideo.currentTime = 0;
+  }
   const tDiv = document.getElementById('final-text');
   if (tDiv) tDiv.style.opacity = '0';
 
@@ -336,7 +372,8 @@ function setCubeState(state) {
       [tilesPool[i], tilesPool[j]] = [tilesPool[j], tilesPool[i]];
     }
 
-    let tileIndex = 0;
+    const unsolvedFaceIdxSet = new Set(unsolvedFaceNames.map(name => faceIdxMap[name]));
+    const stickerTargets = [];
 
     unsolvedFaceNames.forEach(fName => {
       const fIdx = faceIdxMap[fName];
@@ -350,51 +387,121 @@ function setCubeState(state) {
           (fName === 'back' && c.userData.gridPos.z === -1);
 
         if (isExterior) {
-          const tile = tilesPool[tileIndex++];
-          c.material[fIdx] = getMaterial(tile.hex, tile.icon);
+          const visibleFacesCount = c.material.filter(mat => mat.userData.hex !== CONFIG.innerColor).length;
+          stickerTargets.push({ cubie: c, faceIdx: fIdx, visibleFacesCount });
         }
       });
     });
+
+    const colorGroupByHex = {
+      [CONFIG.faceColors.right]: 'x',
+      [CONFIG.faceColors.left]: 'x',
+      [CONFIG.faceColors.top]: 'y',
+      [CONFIG.faceColors.bottom]: 'y',
+      [CONFIG.faceColors.front]: 'z',
+      [CONFIG.faceColors.back]: 'z',
+    };
+
+    // Сначала раскладываем углы, потом рёбра, потом центры — так легче избежать невозможных комбинаций на одном cubie.
+    stickerTargets.sort((a, b) => b.visibleFacesCount - a.visibleFacesCount);
+
+    function buildAssignments(attemptSeedOffset = 0) {
+      const remainingTiles = tilesPool.slice();
+      let localSeed = state * 12345 + attemptSeedOffset;
+
+      for (let i = remainingTiles.length - 1; i > 0; i--) {
+        const hash = seededRandom(localSeed++);
+        const j = Math.floor(hash * (i + 1));
+        [remainingTiles[i], remainingTiles[j]] = [remainingTiles[j], remainingTiles[i]];
+      }
+
+      const usedGroupsByCubie = new Map();
+      cubies.forEach(c => {
+        const usedGroups = new Set();
+        c.material.forEach((mat, idx) => {
+          if (!unsolvedFaceIdxSet.has(idx) && mat.userData.hex !== CONFIG.innerColor) {
+            usedGroups.add(colorGroupByHex[mat.userData.hex]);
+          }
+        });
+        usedGroupsByCubie.set(c, usedGroups);
+      });
+
+      const assignments = [];
+
+      for (const target of stickerTargets) {
+        const usedGroups = usedGroupsByCubie.get(target.cubie);
+        const tileIdx = remainingTiles.findIndex(tile => !usedGroups.has(colorGroupByHex[tile.hex]));
+
+        if (tileIdx === -1) {
+          return null;
+        }
+
+        const [tile] = remainingTiles.splice(tileIdx, 1);
+        assignments.push({ cubie: target.cubie, faceIdx: target.faceIdx, tile });
+        usedGroups.add(colorGroupByHex[tile.hex]);
+      }
+
+      return assignments;
+    }
+
+    let assignments = null;
+    for (let attempt = 0; attempt < 24 && !assignments; attempt++) {
+      assignments = buildAssignments(attempt * 997);
+    }
+
+    const safeAssignments = assignments || stickerTargets.map((target, idx) => ({
+      cubie: target.cubie,
+      faceIdx: target.faceIdx,
+      tile: tilesPool[idx],
+    }));
+
+    safeAssignments.forEach(({ cubie, faceIdx, tile }) => {
+      cubie.material[faceIdx] = getMaterial(tile.hex, tile.icon);
+    });
   }
 
-  // 7 ЭТАП: Финальная анимация (God Rays, ускорение, увеличение, исчезновение)
+  // 7 ЭТАП: Финальная анимация (видео, ускорение, увеличение, исчезновение)
   if (state === 7) {
-    let shaderDiv = document.getElementById('god-rays-shader');
-    if (!shaderDiv) {
-      shaderDiv = document.createElement('div');
-      shaderDiv.id = 'god-rays-shader';
-      // Стили подготавливают контейнер "на весь фон" позади куба
-      shaderDiv.style.position = 'fixed';
-      shaderDiv.style.top = '0';
-      shaderDiv.style.left = '0';
-      shaderDiv.style.width = '100vw';
-      shaderDiv.style.height = '100vh';
-      shaderDiv.style.zIndex = '-1';
-      shaderDiv.style.background = '#ffffff';
-      shaderDiv.style.transition = 'opacity 1.5s ease';
-      document.body.appendChild(shaderDiv);
-
-      // Монтируем React-компонент шейдера непосредственно в DOM Vanilla JS
-      const root = createRoot(shaderDiv);
-      root.render(
-        React.createElement(GodRays, {
-          width: window.innerWidth,
-          height: window.innerHeight,
-          colors: ["#9a6fc8", "#ef6915", "#ffffff", "#ef6915"],
-          colorBack: "#ffffff",
-          colorBloom: "#9a6fc8",
-          bloom: 0.4,
-          intensity: 0.9,
-          density: 0.2,
-          spotty: 0.6,
-          midSize: 0.2,
-          midIntensity: 0.4,
-          speed: 4.00,
-          offsetY: -0.55
-        })
-      );
+    let finalVideo = document.getElementById('final-video');
+    if (!finalVideo) {
+      finalVideo = document.createElement('video');
+      finalVideo.id = 'final-video';
+      finalVideo.src = 'assets/otpCoverBg.mp4';
+      finalVideo.muted = true;
+      finalVideo.loop = false;
+      finalVideo.autoplay = true;
+      finalVideo.playsInline = true;
+      finalVideo.preload = 'auto';
+      finalVideo.style.position = 'fixed';
+      finalVideo.style.top = '0';
+      finalVideo.style.left = '0';
+      finalVideo.style.width = '100vw';
+      finalVideo.style.height = '100vh';
+      finalVideo.style.objectFit = 'cover';
+      finalVideo.style.zIndex = '-1';
+      finalVideo.style.opacity = '0';
+      finalVideo.style.transition = 'opacity 1.5s ease';
+      finalVideo.style.pointerEvents = 'none';
+      finalVideo.addEventListener('timeupdate', () => {
+        if (!finalVideo.duration || finalVideo.seeking) return;
+        if (finalVideo.duration - finalVideo.currentTime <= 0.05) {
+          finalVideo.currentTime = 0.01;
+          if (finalVideo.paused) {
+            const resumePromise = finalVideo.play();
+            if (resumePromise && typeof resumePromise.catch === 'function') {
+              resumePromise.catch(() => {});
+            }
+          }
+        }
+      });
+      document.body.appendChild(finalVideo);
     }
-    shaderDiv.style.opacity = '1';
+    finalVideo.currentTime = 0;
+    finalVideo.style.opacity = '1';
+    const playPromise = finalVideo.play();
+    if (playPromise && typeof playPromise.catch === 'function') {
+      playPromise.catch(() => {});
+    }
 
     let textDiv = document.getElementById('final-text');
     if (!textDiv) {
@@ -404,14 +511,18 @@ function setCubeState(state) {
       textDiv.style.top = '50%';
       textDiv.style.left = '50%';
       textDiv.style.transform = 'translate(-50%, -50%)';
-      textDiv.style.color = '#1a1a2e';
-      textDiv.style.fontSize = '80px';
-      textDiv.style.fontWeight = 'bold';
-      textDiv.style.letterSpacing = '0.05em';
+      textDiv.style.color = '#000000';
+      textDiv.style.textAlign = 'center';
+      textDiv.style.fontFamily = "'Onest', sans-serif";
+      textDiv.style.fontSize = '28px';
+      textDiv.style.fontStyle = 'normal';
+      textDiv.style.fontWeight = '600';
+      textDiv.style.lineHeight = '125%';
+      textDiv.style.letterSpacing = '-0.56px';
       textDiv.style.opacity = '0';
       textDiv.style.transition = 'opacity 1.5s ease';
       textDiv.style.zIndex = '10';
-      textDiv.innerText = 'Ты заполнил куб!';
+      textDiv.innerText = 'Мы сложили кубик вместе!';
       document.body.appendChild(textDiv);
     } else {
       textDiv.style.opacity = '0';
@@ -603,7 +714,7 @@ function showToast(msg) {
 }
 
 function setButtonsDisabled(disabled) {
-  document.querySelectorAll('#ui-overlay button').forEach(b => b.disabled = disabled);
+  document.querySelectorAll('#ui-overlay [data-state]').forEach(b => b.disabled = disabled);
 }
 
 document.querySelectorAll('[data-state]').forEach(btn => {
@@ -612,6 +723,19 @@ document.querySelectorAll('[data-state]').forEach(btn => {
     if (window.setCubeState) window.setCubeState(s);
   });
 });
+
+updateCurrentStateIndicator();
+updateCubeVisibilityButton();
+
+const toggleCubeVisibilityBtn = document.getElementById('toggle-cube-visibility');
+if (toggleCubeVisibilityBtn) {
+  toggleCubeVisibilityBtn.addEventListener('click', () => {
+    cubeDisplayEnabled = !cubeDisplayEnabled;
+    updateCubeVisibilityButton();
+    syncCubeVisibility();
+    showToast(cubeDisplayEnabled ? 'Куб показан' : 'Куб скрыт');
+  });
+}
 
 window.addEventListener('resize', () => {
   camera.aspect = window.innerWidth / window.innerHeight;
@@ -652,10 +776,12 @@ function animate() {
     } else if (elapsed > 9.0) {
       // Полностью скрываем куб и рендеринг после увеличения
       renderer.domElement.style.opacity = '0';
-      cubeGroup.visible = false;
+      animationWantsCubeVisible = false;
+      syncCubeVisibility();
     } else {
       // Куб нормально рендерится во время разгона и кручения (до 6.5 сек)
-      cubeGroup.visible = true;
+      animationWantsCubeVisible = true;
+      syncCubeVisibility();
     }
 
     // 3. Появление текста только после начала растворения куба (~8.0 секунд)
@@ -666,7 +792,8 @@ function animate() {
       }
     }
   } else {
-    cubeGroup.visible = true;
+    animationWantsCubeVisible = true;
+    syncCubeVisibility();
   }
 
   // Накапливаем базовое вращение
