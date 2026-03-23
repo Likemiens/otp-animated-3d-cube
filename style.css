@@ -7,7 +7,7 @@
 body {
   overflow: hidden;
   font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
-  background: linear-gradient(180deg, #FBFD89 0%, #BCD70E 100%);
+  background: linear-gradient(180deg, #E0FFB4 0%, #8ECC06 100%);
   color: #ffffff;
   user-select: none;
 }
@@ -60,7 +60,7 @@ canvas {
 #ui-state button {
   padding: 10px 22px;
   border: none;
-  border-radius: 14px;
+  border-radius: 8px;
   background: rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -82,6 +82,7 @@ canvas {
 #ui-overlay button:active,
 #ui-state button:active {
   transform: translateY(0);
+  scale: 0.95;
 }
 
 #ui-overlay button:disabled,

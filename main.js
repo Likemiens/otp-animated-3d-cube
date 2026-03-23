@@ -306,10 +306,10 @@ function setCubeState(state) {
     }
   }
 
-  // 2. Если состояние < 7, симулируем перемешивание нужного количества граней
-  if (state < 7) {
+  // 2. Если состояние < 6, симулируем перемешивание нужного количества граней
+  if (state < 6) {
     const faceNames = ['right', 'left', 'top', 'bottom', 'front', 'back'];
-    // state 1 = 0 собранных граней, state 6 = 5 собранных
+    // state 1 = 0 собранных граней, state 5 = 4 собранных
     const solvedCount = state - 1;
     const unsolvedFaceNames = faceNames.slice(solvedCount);
 
@@ -357,8 +357,8 @@ function setCubeState(state) {
     });
   }
 
-  // 8 ЭТАП: Финальная анимация (God Rays, ускорение, увеличение, исчезновение)
-  if (state === 8) {
+  // 7 ЭТАП: Финальная анимация (God Rays, ускорение, увеличение, исчезновение)
+  if (state === 7) {
     let shaderDiv = document.getElementById('god-rays-shader');
     if (!shaderDiv) {
       shaderDiv = document.createElement('div');
@@ -467,7 +467,7 @@ function getAxisForFace(face) {
 
 function scheduleAutoAction() {
   clearTimeout(autoTurnTimeout);
-  if (currentState === 7) return; // Собранный куб просто крутится без переворотов
+  if (currentState === 6) return; // Собранный куб просто крутится без переворотов
 
   let pause = 1500 + Math.random() * 1000;
 
@@ -481,7 +481,7 @@ function scheduleAutoAction() {
       return;
     }
 
-    // Состояния 2-6: цикл "разобрать-собрать"
+    // Состояния 2-5: цикл "разобрать-собрать"
     if (loopPhase === 'idle') {
       const faces = ['right', 'left', 'top', 'bottom', 'front', 'back'];
       const f = faces[Math.floor(Math.random() * faces.length)];
