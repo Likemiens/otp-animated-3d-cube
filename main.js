@@ -82,30 +82,10 @@ controls.maxPolarAngle = Math.PI;
 // Одна картинка (OTP логотип) — размещается на 1 случайном тайле на каждой грани
 const FACE_NAMES = ['right', 'left', 'top', 'bottom', 'front', 'back'];
 
-// Для каждой грани детерминированно выбираем одну случайную позицию из 9 тайлов
-function seededRand(seed) {
-  const x = Math.sin(seed) * 10000;
-  return x - Math.floor(x);
-}
-
-// Все 9 возможных 2D-позиций тайлов на грани
-const ALL_TILE_POSITIONS = [];
-for (let a = -1; a <= 1; a++) {
-  for (let b = -1; b <= 1; b++) {
-    ALL_TILE_POSITIONS.push(a + ',' + b);
-  }
-}
-
-// Выбираем по 1 случайной позиции на каждую грань (seed = index грани)
-const FACE_LOGO_POSITION = {};
-FACE_NAMES.forEach((face, idx) => {
-  const rand = seededRand((idx + 1) * 7777);
-  const tileIdx = Math.floor(rand * 9);
-  FACE_LOGO_POSITION[face] = ALL_TILE_POSITIONS[tileIdx];
-});
-
 // Определяем, нужно ли рисовать лого на этом тайле
 function getFaceIcon(faceName, x, y, z) {
+  if (faceName !== 'front') return 'none';
+
   let a, b;
   switch (faceName) {
     case 'right': a = z; b = y; break;
@@ -115,13 +95,16 @@ function getFaceIcon(faceName, x, y, z) {
     case 'front': a = x; b = y; break;
     case 'back': a = -x; b = y; break;
   }
-  return (a + ',' + b) === FACE_LOGO_POSITION[faceName] ? 'otp_logo' : 'none';
+  return (a === 0 && b === 0) ? 'otp_logo' : 'none';
 }
 
 // ============================================================
 // ЗАГРУЗКА ЛОГОТИПА (одна картинка)
 // ============================================================
 const ICON_IMAGES = {};
+const ICON_COLORS = {
+  otp_logo: '#000000',
+};
 let iconsLoaded = false;
 
 function loadAllIcons() {
@@ -129,7 +112,7 @@ function loadAllIcons() {
     const img = new Image();
     img.onload = () => { ICON_IMAGES['otp_logo'] = img; iconsLoaded = true; resolve(); };
     img.onerror = () => { console.warn('Не удалось загрузить логотип'); iconsLoaded = true; resolve(); };
-    img.src = 'icons/otp_logo.png';
+    img.src = 'icons/otp_logo.svg';
   });
 }
 
@@ -189,7 +172,18 @@ function getMaterial(hex, iconType) {
   if (iconType !== 'none' && iconType && ICON_IMAGES[iconType]) {
     const iconPad = 50; // Отступ логотипа от краёв тайла
     const iconSize = 256 - iconPad * 2;
-    ctx.drawImage(ICON_IMAGES[iconType], iconPad, iconPad, iconSize, iconSize);
+    const iconCanvas = document.createElement('canvas');
+    iconCanvas.width = iconSize;
+    iconCanvas.height = iconSize;
+    const iconCtx = iconCanvas.getContext('2d');
+
+    iconCtx.fillStyle = ICON_COLORS[iconType] || '#ffffff';
+    iconCtx.fillRect(0, 0, iconSize, iconSize);
+    iconCtx.globalCompositeOperation = 'destination-in';
+    iconCtx.drawImage(ICON_IMAGES[iconType], 0, 0, iconSize, iconSize);
+    iconCtx.globalCompositeOperation = 'source-over';
+
+    ctx.drawImage(iconCanvas, iconPad, iconPad, iconSize, iconSize);
   }
 
   const map = new THREE.CanvasTexture(canvas);
@@ -356,12 +350,11 @@ function setCubeState(state) {
       return x - Math.floor(x);
     }
 
-    // Собираем пул тайлов {hex, icon} — ровно 9 на грань (1 с логотипом, 8 без)
+    // Собираем пул тайлов {hex, icon} — иконки в скрамбле не раскидываем, логотип живёт только в центре front-грани.
     const tilesPool = [];
     unsolvedFaceNames.forEach(f => {
       const hex = CONFIG.faceColors[f];
-      for (let i = 0; i < 1; i++) tilesPool.push({ hex, icon: 'otp_logo' });
-      for (let i = 0; i < 8; i++) tilesPool.push({ hex, icon: 'none' });
+      for (let i = 0; i < 9; i++) tilesPool.push({ hex, icon: 'none' });
     });
 
     // Детерминированно перемешиваем пул тайлов
@@ -458,6 +451,16 @@ function setCubeState(state) {
     safeAssignments.forEach(({ cubie, faceIdx, tile }) => {
       cubie.material[faceIdx] = getMaterial(tile.hex, tile.icon);
     });
+
+    const frontCenterCubie = cubies.find(c =>
+      c.userData.gridPos.x === 0 &&
+      c.userData.gridPos.y === 0 &&
+      c.userData.gridPos.z === 1
+    );
+
+    if (frontCenterCubie) {
+      frontCenterCubie.material[faceIdxMap.front] = getMaterial(CONFIG.faceColors.front, 'otp_logo');
+    }
   }
 
   // 7 ЭТАП: Финальная анимация (видео, ускорение, увеличение, исчезновение)
