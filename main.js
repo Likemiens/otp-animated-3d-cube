@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { RoundedBoxGeometry } from 'three/addons/geometries/RoundedBoxGeometry.js';
+import { RoomEnvironment } from 'three/addons/environments/RoomEnvironment.js';
 
 // ============================================================
 // НАСТРАИВАЕМЫЕ ПАРАМЕТРЫ
@@ -9,9 +10,9 @@ const CONFIG = {
   // Цвета граней куба: +X (правая), -X (левая), +Y (верх), -Y (низ), +Z (перед), -Z (зад)
   faceColors: {
     right: '#9760D3', // фиолетовый
-    left: '#f1c40f', // жёлтый
+    left: '#E6E8EA', // очень светлое яркое серебро (Mirror Cube)
     top: '#F67629', // оранжевый
-    bottom: '#e74c3c', // красный
+    bottom: '#ffffff', // чисто белый
     front: '#B9FF00', // зелёный
     back: '#3498db', // синий
   },
@@ -45,6 +46,11 @@ renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.1;
 document.body.appendChild(renderer.domElement);
 
+const pmremGenerator = new THREE.PMREMGenerator(renderer);
+pmremGenerator.compileEquirectangularShader();
+scene.environment = pmremGenerator.fromScene(new RoomEnvironment()).texture;
+scene.environmentIntensity = 1.8; // Усиливаем яркость отражений, чтобы металл сиял
+
 // ============================================================
 // СВЕТ
 // ============================================================
@@ -54,13 +60,20 @@ const mainLight = new THREE.DirectionalLight(0xffffff, 1.2);
 mainLight.position.set(8, 12, 10);
 scene.add(mainLight);
 
-const fillLight = new THREE.DirectionalLight(0xddeeff, 0.4);
-fillLight.position.set(-6, 4, -8);
+const fillLight = new THREE.DirectionalLight(0xc8dcff, 0.75);
+fillLight.position.set(-5, 6, -6);
 scene.add(fillLight);
 
 const rimLight = new THREE.DirectionalLight(0xffffff, 0.3);
 rimLight.position.set(0, -4, -10);
 scene.add(rimLight);
+
+// Добавляем "головной свет", привязанный к камере!
+// Это заставит грани, смотрящие прямо на нас, всегда ярко блестеть
+const cameraLight = new THREE.DirectionalLight(0xffffff, 0.8);
+cameraLight.position.set(0, 0, 1);
+camera.add(cameraLight);
+scene.add(camera); // Важно добавить камеру в сцену, так как к ней прикреплен свет
 
 // ============================================================
 // ORBITCONTROLS
@@ -121,10 +134,16 @@ function loadAllIcons() {
 // ============================================================
 const materialCache = {};
 
+// Переопределение свойств для особых цветов
+const MATERIAL_PROPS = {
+  '#E6E8EA': { roughness: 0.15, metalness: 0.55, shine: true }, // Снизили metalness, чтобы сохранить белую яркость
+};
+
 function getMaterial(hex, iconType) {
   const key = hex + '_' + iconType;
-  const rgh = 0.4;
-  const mtl = 0.1;
+  const props = MATERIAL_PROPS[hex] || {};
+  const rgh = props.roughness ?? 0.4;
+  const mtl = props.metalness ?? 0.1;
 
   if (materialCache[key]) {
     return materialCache[key];
@@ -150,27 +169,93 @@ function getMaterial(hex, iconType) {
   const size = 256 - padding * 2;
   const r = 32;
 
-  if (ctx.roundRect) {
-    ctx.beginPath();
-    ctx.roundRect(padding, padding, size, size, r);
+  function buildRoundRectPath(context) {
+    if (context.roundRect) {
+      context.beginPath();
+      context.roundRect(padding, padding, size, size, r);
+    } else {
+      context.beginPath();
+      context.moveTo(padding + r, padding);
+      context.lineTo(padding + size - r, padding);
+      context.quadraticCurveTo(padding + size, padding, padding + size, padding + r);
+      context.lineTo(padding + size, padding + size - r);
+      context.quadraticCurveTo(padding + size, padding + size, padding + size - r, padding + size);
+      context.lineTo(padding + r, padding + size);
+      context.quadraticCurveTo(padding, padding + size, padding, padding + size - r);
+      context.lineTo(padding, padding + r);
+      context.quadraticCurveTo(padding, padding, padding + r, padding);
+    }
+  }
+
+  // Если это металл (серебро)
+  let bumpMap = null;
+
+  if (props.shine) {
+    ctx.save();
+    
+    // Создаем маску-скругление, чтобы металл НЕ вылезал на черную пластиковую рамку
+    buildRoundRectPath(ctx);
+    ctx.clip(); // Все дальнейшие рисунки будут ТОЛЬКО внутри наклейки!
+    
+    // 1. Светлый хромированный диагональный градиент
+    const grad = ctx.createLinearGradient(padding, padding, padding + size, padding + size);
+    grad.addColorStop(0,   'rgba(255,255,255,1.0)');
+    grad.addColorStop(0.3, 'rgba(235,235,235,1.0)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,1.0)');
+    grad.addColorStop(0.8, 'rgba(220,225,230,1.0)');
+    grad.addColorStop(1,   'rgba(240,240,240,1.0)');
+    ctx.fillStyle = grad;
     ctx.fill();
+
+    // 2. Генерация физических царапин для карты рельефа (Bump Map)
+    const bumpCanvas = document.createElement('canvas');
+    bumpCanvas.width = 256;
+    bumpCanvas.height = 256;
+    const bCtx = bumpCanvas.getContext('2d');
+    
+    bCtx.fillStyle = '#808080';
+    bCtx.fillRect(0, 0, 256, 256);
+
+    // Рисуем фактурные полосы
+    for (let i = 0; i < 1500; i++) {
+      const yStr = padding + Math.random() * size;
+      const hStr = Math.random() * 2 + 0.5;
+      
+      const isDark = Math.random() > 0.6;
+      
+      // На bump-текстуру (слабый контраст, чтобы не создавать глубокие тени):
+      bCtx.fillStyle = isDark ? `rgba(0, 0, 0, ${Math.random() * 0.2})` : `rgba(255, 255, 255, ${Math.random() * 0.3})`;
+      bCtx.fillRect(padding, yStr, size, hStr);
+      
+      // На основную цветную текстуру (очень яркую):
+      ctx.fillStyle = isDark ? `rgba(200, 205, 210, ${Math.random() * 0.3})` : `rgba(255, 255, 255, ${Math.random() * 0.8})`;
+      ctx.fillRect(padding, yStr, size, hStr);
+    }
+    
+    // Создаем Bump Map из второго канваса
+    // Маска не нужна для bumpMap, т.к. вне наклейки он просто #808080 (плоский) 
+    bumpMap = new THREE.CanvasTexture(bumpCanvas);
+    bumpMap.colorSpace = THREE.NoColorSpace;
+    bumpMap.anisotropy = 4;
+
+    ctx.restore(); // Убираем маску, чтобы нарисовать светлый кант поверх
+
+    // 3. Добавляем светлый кант (фаску)
+    buildRoundRectPath(ctx);
+    ctx.lineWidth = 2;
+    ctx.strokeStyle = 'rgba(255,255,255,0.4)';
+    ctx.stroke();
+
   } else {
-    ctx.beginPath();
-    ctx.moveTo(padding + r, padding);
-    ctx.lineTo(padding + size - r, padding);
-    ctx.quadraticCurveTo(padding + size, padding, padding + size, padding + r);
-    ctx.lineTo(padding + size, padding + size - r);
-    ctx.quadraticCurveTo(padding + size, padding + size, padding + size - r, padding + size);
-    ctx.lineTo(padding + r, padding + size);
-    ctx.quadraticCurveTo(padding, padding + size, padding, padding + size - r);
-    ctx.lineTo(padding, padding + r);
-    ctx.quadraticCurveTo(padding, padding, padding + r, padding);
+    // Обычная заливка цветом для всех остальных граней
+    buildRoundRectPath(ctx);
+    ctx.fillStyle = hex;
     ctx.fill();
   }
 
   // Рисуем логотип OTP на тайле
   if (iconType !== 'none' && iconType && ICON_IMAGES[iconType]) {
-    const iconPad = 50; // Отступ логотипа от краёв тайла
+    const iconPad = 50;
     const iconSize = 256 - iconPad * 2;
     const iconCanvas = document.createElement('canvas');
     iconCanvas.width = iconSize;
@@ -194,7 +279,9 @@ function getMaterial(hex, iconType) {
     color: 0xffffff,
     map: map,
     roughness: rgh,
-    metalness: mtl
+    metalness: mtl,
+    bumpMap: bumpMap,
+    bumpScale: 0.008 // Уменьшил бамп, чтобы тени от царапин не делали металл грязным/матовым
   });
   matBase.userData = { hex: hex, icon: iconType };
   materialCache[key] = matBase;
